@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>포격전</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#10141c">
+<meta property="og:title" content="포격전">
+<meta property="og:description" content="바람을 읽고 포탄을 날려라! 친구와 온라인 포격 대결.">
+<style>
+  :root{
+    --bg:#10141c; --panel:#1e2635; --ink:#e8ecf2; --dim:#8a93a5;
+    --accent:#f0a848; --danger:#d9534f; --ok:#5cb85c;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    min-height:100vh; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI", system-ui, sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    overscroll-behavior:none; touch-action:manipulation;
+  }
+  .screen{width:100%; max-width:480px; padding:24px 20px calc(24px + env(safe-area-inset-bottom)); display:none; flex-direction:column; align-items:center}
+  .screen.on{display:flex}
+  h1{font-size:44px; margin:40px 0 6px; letter-spacing:.05em}
+  h1 .go{color:var(--accent)}
+  .sub{color:var(--dim); font-size:14px; margin-bottom:40px; letter-spacing:.15em}
+  .btn{
+    width:100%; max-width:320px; padding:16px; margin:7px 0; font-size:17px; font-weight:700;
+    background:var(--panel); color:var(--ink); border:1px solid #3a465c; border-radius:14px;
+    cursor:pointer; text-align:center;
+  }
+  .btn:active{background:#2a3548}
+  .btn.primary{background:var(--accent); color:#241a08; border-color:#f5c47e}
+  .btn.ghost{background:transparent; border-color:#2a3242; color:var(--dim); font-weight:400; font-size:14px; padding:12px}
+  .btn:disabled{opacity:.45}
+  input.code{
+    width:100%; max-width:320px; padding:14px; margin:6px 0; font-size:24px; text-align:center;
+    letter-spacing:.4em; text-transform:uppercase; font-weight:700;
+    background:#0a0e15; color:var(--ink); border:1px solid #3a465c; border-radius:12px; outline:none;
+  }
+  .note{color:var(--dim); font-size:13px; line-height:1.8; text-align:center; margin-top:10px}
+  .note b{color:var(--accent)}
+  .note a{color:var(--dim)}
+  #gamewrap{position:relative; width:100%; max-width:480px}
+  canvas{display:block; width:100%; touch-action:none}
+  #overlay{
+    position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(6,8,12,.75); text-align:center; padding:20px;
+  }
+  #overlay.on{display:flex}
+  #overlay .big{font-size:38px; font-weight:900; margin-bottom:8px}
+  #overlay .small{color:var(--dim); margin-bottom:24px; font-size:14px; line-height:1.7}
+  #toast{
+    position:fixed; bottom:calc(30px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
+    background:#000c; color:var(--ink); padding:10px 18px; border-radius:20px; font-size:14px;
+    opacity:0; transition:opacity .3s; pointer-events:none; white-space:nowrap; z-index:50;
+  }
+  #toast.on{opacity:1}
+  .spin{
+    width:34px; height:34px; border:3px solid #3a465c; border-top-color:var(--accent);
+    border-radius:50%; animation:sp 1s linear infinite; margin:16px auto;
+  }
+  @keyframes sp{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){ .spin{animation-duration:2s} }
+</style>
+</head>
+<body>
+
+<!-- ══════ 메뉴 ══════ -->
+<div id="scr-menu" class="screen on">
+  <h1>포격<span class="go">전</span></h1>
+  <div class="sub">ARTILLERY DUEL · 턴제 포격 대전</div>
+  <button class="btn primary" id="b-online">🌐 온라인 대전 — 친구와 한 판</button>
+  <button class="btn" id="b-local">📱 한 폰으로 대결</button>
+  <button class="btn" id="b-ai">🤖 혼자 연습 (AI)</button>
+  <div class="note">탱크를 당겨서 조준·발사!<br>바람을 계산해 상대 탱크를 먼저 부수면 승리.<br>지형은 포탄에 파괴됩니다.</div>
+  <div class="note" style="margin-top:26px"><a href="https://kentc.github.io/arcade/">← 아케이드 허브</a></div>
+</div>
+
+<!-- ══════ 온라인 설정 ══════ -->
+<div id="scr-online" class="screen">
+  <h1 style="font-size:30px">온라인 대전</h1>
+  <div class="sub">방 코드로 연결</div>
+  <button class="btn primary" id="b-create">방 만들기</button>
+  <div class="note" style="margin:14px 0">— 또는 —</div>
+  <input class="code" id="in-code" maxlength="4" placeholder="CODE" autocomplete="off">
+  <button class="btn" id="b-join">코드로 입장</button>
+  <button class="btn ghost" id="b-back1">← 메뉴로</button>
+  <div class="note" id="online-note"></div>
+</div>
+
+<!-- ══════ 대기실 ══════ -->
+<div id="scr-wait" class="screen">
+  <h1 style="font-size:30px">대기 중</h1>
+  <div class="sub">친구를 기다리는 중...</div>
+  <div style="font-size:52px; font-weight:900; letter-spacing:.35em; color:var(--accent); margin:10px 0" id="wait-code"></div>
+  <div class="spin"></div>
+  <button class="btn primary" id="b-share">📤 친구에게 초대 링크 보내기</button>
+  <button class="btn ghost" id="b-back2">← 취소</button>
+  <div class="note">친구가 링크를 누르거나 코드를 입력하면<br>자동으로 전투가 시작됩니다</div>
+</div>
+
+<!-- ══════ 게임 ══════ -->
+<div id="scr-game" class="screen" style="padding:0">
+  <div id="gamewrap">
+    <canvas id="cv"></canvas>
+    <div id="overlay">
+      <div class="big" id="ov-title"></div>
+      <div class="small" id="ov-sub"></div>
+      <button class="btn primary" id="b-rematch" style="max-width:260px">재대결</button>
+      <button class="btn ghost" id="b-exit" style="max-width:260px">메뉴로 나가기</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+'use strict';
+/* ═══════════════════════════════════════════════════════
+   포격전 v1 — 턴제 포격 대전 (파괴 지형 + 바람 + 온라인)
+   구조: [지형] [물리/발사체] [렌더] [입력] [AI] [TurnNet] [게임 흐름]
+═══════════════════════════════════════════════════════ */
+
+// ── Supabase 설정 (키를 넣으면 온라인 모드 활성화) ──
+const SUPA_URL = '';   // 예: https://xxxx.supabase.co
+const SUPA_KEY = '';   // anon public key
+
+// ═══════ 기본 상수 ═══════
+const W=400, H=600, TW=400;         // 논리 캔버스, 지형 폭
+const G=0.055;                       // 중력 (스텝당)
+const WF=0.0012;                     // 바람 가속 계수
+const SPD=0.055;                     // 파워→초속 계수 (파워 100 = 5.5px/스텝)
+const EXP_R=22;                      // 폭발 반경
+const cv=document.getElementById('cv');
+const g=cv.getContext('2d');
+let DPR=Math.min(2, window.devicePixelRatio||1);
+cv.width=W*DPR; cv.height=H*DPR;
+g.scale(DPR,DPR);
+
+// ═══════ 게임 상태 ═══════
+let ground=new Array(TW).fill(460); // x열별 지표면 y (아래로 클수록 낮음)
+let tanks=[];            // [{x,y,hp,bar}] 0=왼쪽 1=오른쪽
+let turn=0;              // 현재 차례 플레이어 인덱스
+let state='aim';         // 'aim'|'fly'|'boom'|'over'
+let mode=null;           // 'ai'|'local'|'online'
+let myIdx=0;             // 온라인/AI에서 나의 인덱스
+let proj=null;           // 발사체
+let wind=0;              // 현재 바람 (-9..+9, +는 오른쪽)
+let windRng=null;        // 바람용 결정적 RNG (온라인 동기화)
+let shake=0;             // 화면 흔들림 프레임
+let particles=[];
+let aiming=null;         // {sx,sy,cx,cy}
+let lastCraters=[];      // 이번 턴에 판 크레이터 (sync용)
+let pendingSync=null;
+let net=null, roomCode='';
+let rematchMe=false, rematchOpp=false;
+let SEED=0;
+
+// ═══════ 결정적 RNG (mulberry32) ═══════
+function mulberry32(a){
+  return function(){
+    a|=0; a=a+0x6D2B79F5|0;
+    let t=Math.imul(a^a>>>15, 1|a);
+    t=t+Math.imul(t^t>>>7, 61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+function clampX(x){ return Math.max(0, Math.min(TW-1, x|0)); }
+
+// ═══════ 지형 ═══════
+function genTerrain(seed){
+  const rng=mulberry32(seed>>>0);
+  const base=440;
+  const a1=28+rng()*38, f1=0.008+rng()*0.008, p1=rng()*6.283;
+  const a2=12+rng()*18, f2=0.02+rng()*0.02,  p2=rng()*6.283;
+  const a3=4+rng()*8,   f3=0.055+rng()*0.05, p3=rng()*6.283;
+  for(let x=0;x<TW;x++){
+    const y=base + a1*Math.sin(x*f1+p1) + a2*Math.sin(x*f2+p2) + a3*Math.sin(x*f3+p3);
+    ground[x]=Math.max(320, Math.min(572, y));
+  }
+  const p0x=35+Math.floor(rng()*45);
+  const p1x=TW-35-Math.floor(rng()*45);
+  return [p0x, p1x];
+}
+function flatten(px){
+  const h=ground[clampX(px)];
+  for(let x=px-10;x<=px+10;x++){ if(x>=0&&x<TW) ground[x]=h; }
+}
+function carve(ex,ey,r){
+  const x0=Math.max(0, Math.floor(ex-r)), x1=Math.min(TW-1, Math.ceil(ex+r));
+  for(let x=x0;x<=x1;x++){
+    const dx=x-ex, d2=r*r-dx*dx;
+    if(d2<=0) continue;
+    const bot=ey+Math.sqrt(d2);
+    if(bot>ground[x]) ground[x]=Math.min(580, bot);
+  }
+}
+function settleTanks(){
+  for(const t of tanks) t.y=ground[clampX(Math.round(t.x))];
+}
+
+// ═══════ 사운드 (WebAudio 합성) ═══════
+let AC=null, noiseBuf=null, WH=null;
+function ensureAudio(){
+  if(!AC){
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    noiseBuf=AC.createBuffer(1, AC.sampleRate*0.5, AC.sampleRate);
+    const d=noiseBuf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  }
+  if(AC.state==='suspended') AC.resume();
+}
+function fireSnd(){
+  if(!AC) return;
+  const t=AC.currentTime;
+  const src=AC.createBufferSource(); src.buffer=noiseBuf;
+  const lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=500;
+  const g1=AC.createGain();
+  g1.gain.setValueAtTime(0.5,t); g1.gain.exponentialRampToValueAtTime(0.001,t+0.16);
+  src.connect(lp).connect(g1).connect(AC.destination); src.start(t); src.stop(t+0.18);
+  const o=AC.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(55,t+0.14);
+  const g2=AC.createGain();
+  g2.gain.setValueAtTime(0.4,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+  o.connect(g2).connect(AC.destination); o.start(t); o.stop(t+0.16);
+}
+function startWhistle(){
+  if(!AC) return;
+  stopWhistle();
+  const t=AC.currentTime;
+  const o=AC.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(1250,t);
+  o.frequency.exponentialRampToValueAtTime(260,t+2.6);
+  const ga=AC.createGain();
+  ga.gain.setValueAtTime(0.0001,t);
+  ga.gain.exponentialRampToValueAtTime(0.05,t+0.15);
+  o.connect(ga).connect(AC.destination); o.start(t);
+  WH={o,ga};
+}
+function stopWhistle(){
+  if(!WH||!AC) return;
+  const t=AC.currentTime;
+  try{
+    WH.ga.gain.cancelScheduledValues(t);
+    WH.ga.gain.setValueAtTime(Math.max(0.0001, WH.ga.gain.value), t);
+    WH.ga.gain.exponentialRampToValueAtTime(0.0001, t+0.05);
+    WH.o.stop(t+0.06);
+  }catch(e){}
+  WH=null;
+}
+function boomSnd(){
+  if(!AC) return;
+  const t=AC.currentTime;
+  const src=AC.createBufferSource(); src.buffer=noiseBuf;
+  const lp=AC.createBiquadFilter(); lp.type='lowpass';
+  lp.frequency.setValueAtTime(1100,t); lp.frequency.exponentialRampToValueAtTime(90,t+0.4);
+  const g1=AC.createGain();
+  g1.gain.setValueAtTime(0.7,t); g1.gain.exponentialRampToValueAtTime(0.001,t+0.45);
+  src.connect(lp).connect(g1).connect(AC.destination); src.start(t); src.stop(t+0.5);
+  const o=AC.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(85,t); o.frequency.exponentialRampToValueAtTime(35,t+0.4);
+  const g2=AC.createGain();
+  g2.gain.setValueAtTime(0.55,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.42);
+  o.connect(g2).connect(AC.destination); o.start(t); o.stop(t+0.45);
+}
+function winSnd(){
+  if(!AC) return;
+  [0,4,7,12].forEach((n,i)=>{
+    const t=AC.currentTime+i*0.12, o=AC.createOscillator(), ga=AC.createGain();
+    o.type='triangle'; o.frequency.value=523*Math.pow(2,n/12);
+    ga.gain.setValueAtTime(0.18,t); ga.gain.exponentialRampToValueAtTime(0.001,t+0.25);
+    o.connect(ga).connect(AC.destination); o.start(t); o.stop(t+0.3);
+  });
+}
+
+// ═══════ 발사체 물리 ═══════
+function barrelTip(t){
+  return {x: t.x+Math.cos(t.bar)*15, y: t.y-8-Math.sin(t.bar)*15};
+}
+// 순수 시뮬 (AI 탐색·조준 미리보기용, 지형 변경 없음)
+function simShot(tank, a, p, w, maxSteps, collect){
+  const tip={x:tank.x+Math.cos(a)*15, y:tank.y-8-Math.sin(a)*15};
+  let x=tip.x, y=tip.y, vx=Math.cos(a)*p*SPD, vy=-Math.sin(a)*p*SPD;
+  const pts=collect?[]:null;
+  for(let i=0;i<maxSteps;i++){
+    vy+=G; vx+=w*WF; x+=vx; y+=vy;
+    if(pts) pts.push({x,y});
+    const xi=Math.round(x);
+    if(xi>=0 && xi<TW && y>=ground[xi]) return {hit:true, x, y, pts};
+    if(x<-60 || x>TW+60 || y>H+80) return {hit:false, x, y, pts};
+  }
+  return {hit:false, x, y, pts};
+}
+function fireProjectile(t, a, p){
+  t.bar=a;
+  const tip=barrelTip(t);
+  proj={x:tip.x, y:tip.y, vx:Math.cos(a)*p*SPD, vy:-Math.sin(a)*p*SPD, steps:0};
+  state='fly';
+  fireSnd(); startWhistle();
+}
+function playerFire(a, p){
+  if(mode==='online' && net) net.send('shot', {a:+a.toFixed(4), p:+p.toFixed(2), w:wind});
+  fireProjectile(tanks[turn], a, p);
+}
+function stepProj(){
+  for(let k=0;k<2;k++){
+    if(!proj) return;
+    proj.vy+=G; proj.vx+=wind*WF;
+    proj.x+=proj.vx; proj.y+=proj.vy; proj.steps++;
+    let hitTank=false;
+    for(const t of tanks){
+      if(t.hp>0 && Math.hypot(proj.x-t.x, proj.y-(t.y-6))<12){ hitTank=true; break; }
+    }
+    const xi=Math.round(proj.x);
+    if(hitTank || (xi>=0 && xi<TW && proj.y>=ground[xi])){
+      explode(proj.x, proj.y);
+      return;
+    }
+    if(proj.x<-60 || proj.x>TW+60 || proj.y>H+80 || proj.steps>1600){
+      proj=null; stopWhistle();
+      toast('빗나감!');
+      state='boom';
+      setTimeout(()=>endShot(), 350);
+      return;
+    }
+  }
+}
+function explode(ex, ey){
+  carve(ex, ey, EXP_R);
+  lastCraters.push({x:+ex.toFixed(1), y:+ey.toFixed(1), r:EXP_R});
+  for(const t of tanks){
+    const d=Math.hypot(t.x-ex, (t.y-6)-ey);
+    if(d<=44){
+      const dmg=Math.max(10, Math.round(45-d*0.8));
+      t.hp=Math.max(0, t.hp-dmg);
+    }
+  }
+  settleTanks();
+  shake=8; boomSnd(); stopWhistle();
+  for(let i=0;i<22;i++){
+    const a=Math.random()*6.283, s=1+Math.random()*3.5;
+    particles.push({x:ex, y:ey, vx:Math.cos(a)*s, vy:Math.sin(a)*s-1.5, life:22+Math.random()*14});
+  }
+  proj=null; state='boom';
+  setTimeout(()=>endShot(), 500);
+}
+function endShot(){
+  if(state==='over') return;
+  if(pendingSync){ applySync(pendingSync); pendingSync=null; }
+  if(checkWin()) return;
+  if(mode==='online' && net && turn===myIdx){
+    net.send('sync', {hp:[tanks[0].hp, tanks[1].hp], craters:lastCraters});
+  }
+  lastCraters=[];
+  turn=1-turn;
+  nextWind();
+  state='aim';
+  if(mode==='ai' && turn===1) setTimeout(aiShoot, 900);
+}
+function checkWin(){
+  const d0=tanks[0].hp<=0, d1=tanks[1].hp<=0;
+  if(!d0 && !d1) return false;
+  let winner;
+  if(d0 && d1) winner=turn;        // 동시 파괴 → 쏜 쪽 승
+  else winner = d0 ? 1 : 0;
+  showResult(winner);
+  return true;
+}
+function nextWind(){
+  if(windRng) wind=Math.round((windRng()*2-1)*9);
+}
+
+// ═══════ 게임 초기화 ═══════
+function initGame(seed, positions){
+  SEED=seed>>>0;
+  const pos=genTerrain(SEED);
+  const px=positions || pos;
+  tanks=[
+    {x:px[0], y:0, hp:100, bar:Math.PI/4},
+    {x:px[1], y:0, hp:100, bar:Math.PI*3/4}
+  ];
+  flatten(px[0]); flatten(px[1]);
+  settleTanks();
+  windRng=mulberry32((SEED ^ 0x9E3779B9)>>>0);
+  turn=0; state='aim'; proj=null; shake=0;
+  particles=[]; aiming=null; lastCraters=[]; pendingSync=null;
+  rematchMe=false; rematchOpp=false;
+  nextWind();
+  document.getElementById('overlay').classList.remove('on');
+}
+
+// ═══════ 렌더 ═══════
+function draw(){
+  g.save();
+  if(shake>0){
+    g.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+    shake--;
+  }
+  // 하늘
+  const sky=g.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#0e1626'); sky.addColorStop(0.6,'#22314a'); sky.addColorStop(1,'#3a4258');
+  g.fillStyle=sky; g.fillRect(-10,-10,W+20,H+20);
+  // 지형 (흙)
+  const earth=g.createLinearGradient(0,300,0,H);
+  earth.addColorStop(0,'#6b4a2a'); earth.addColorStop(1,'#31241a');
+  g.fillStyle=earth;
+  g.beginPath();
+  g.moveTo(-10,H+10); g.lineTo(-10,ground[0]);
+  for(let x=0;x<TW;x++) g.lineTo(x,ground[x]);
+  g.lineTo(W+10,ground[TW-1]); g.lineTo(W+10,H+10);
+  g.closePath(); g.fill();
+  // 잔디 라인
+  g.strokeStyle='#5f9e42'; g.lineWidth=3; g.lineJoin='round';
+  g.beginPath();
+  g.moveTo(0,ground[0]);
+  for(let x=1;x<TW;x++) g.lineTo(x,ground[x]);
+  g.stroke();
+  // 탱크
+  for(let i=0;i<tanks.length;i++) drawTank(tanks[i], i);
+  // 발사체
+  if(proj){
+    g.fillStyle='#ffd27a';
+    g.beginPath(); g.arc(proj.x, proj.y, 3.2, 0, 7); g.fill();
+    g.fillStyle='rgba(255,180,80,0.35)';
+    g.beginPath(); g.arc(proj.x-proj.vx*1.5, proj.y-proj.vy*1.5, 2.4, 0, 7); g.fill();
+  }
+  // 파편
+  for(const p of particles){
+    g.globalAlpha=Math.max(0, p.life/30);
+    g.fillStyle = p.life%3===0 ? '#ffa040' : '#7a6a55';
+    g.fillRect(p.x-1.5, p.y-1.5, 3, 3);
+  }
+  g.globalAlpha=1;
+  // 조준 UI
+  if(aiming) drawAim();
+  g.restore();
+  drawHud();
+}
+function drawTank(t, idx){
+  if(t.hp<=0){
+    g.fillStyle='#3a3a3a';
+    g.fillRect(t.x-9, t.y-7, 18, 7);
+    return;
+  }
+  const body = idx===0 ? '#5c8f4a' : '#b0604a';
+  const dark = idx===0 ? '#3d6231' : '#7d4234';
+  // 포신
+  const tip=barrelTip(t);
+  g.strokeStyle=dark; g.lineWidth=3.5; g.lineCap='round';
+  g.beginPath(); g.moveTo(t.x, t.y-8); g.lineTo(tip.x, tip.y); g.stroke();
+  // 무한궤도
+  g.fillStyle='#2a2a30';
+  g.fillRect(t.x-11, t.y-5, 22, 5);
+  // 차체
+  g.fillStyle=body;
+  g.fillRect(t.x-9, t.y-10, 18, 6);
+  // 포탑
+  g.beginPath(); g.arc(t.x, t.y-10, 5, Math.PI, 0); g.fillStyle=dark; g.fill();
+  // 현재 차례 표시 ▼
+  if(state==='aim' && turn===idx){
+    g.fillStyle='#f0a848'; g.font='bold 13px sans-serif'; g.textAlign='center';
+    g.fillText('▼', t.x, t.y-26);
+  }
+}
+function drawAim(){
+  const t=tanks[turn];
+  const dx=aiming.sx-aiming.cx, dy=aiming.sy-aiming.cy;
+  const dist=Math.hypot(dx,dy);
+  if(dist<10) return;
+  const a=Math.atan2(-dy,dx);
+  const p=Math.min(100, dist*0.75);
+  // 포신 방향 갱신 + 궤적 프리뷰 (초반 ~15%)
+  t.bar=a;
+  const sim=simShot(t, a, p, wind, 26, true);
+  g.fillStyle='#ffdc8a';
+  if(sim.pts){
+    for(let i=2;i<sim.pts.length;i+=3){
+      g.beginPath(); g.arc(sim.pts[i].x, sim.pts[i].y, 2, 0, 7); g.fill();
+    }
+  }
+  // 각도·파워 텍스트
+  const deg=Math.round(a*180/Math.PI);
+  g.font='bold 15px sans-serif'; g.textAlign='center';
+  g.fillStyle='#fff';
+  g.fillText(deg+'°  파워 '+Math.round(p), W/2, 92);
+  // 파워 게이지
+  g.fillStyle='#0008'; g.fillRect(W/2-60, 100, 120, 9);
+  g.fillStyle = p>85 ? '#d9534f' : '#f0a848';
+  g.fillRect(W/2-60, 100, 120*p/100, 9);
+}
+function drawHud(){
+  // HP 바
+  let lab;
+  if(mode==='local') lab=['P1','P2'];
+  else lab = myIdx===0 ? ['나','상대'] : ['상대','나'];
+  drawHpBar(12, lab[0], tanks[0].hp, '#5c8f4a');
+  drawHpBar(W-162, lab[1], tanks[1].hp, '#b0604a');
+  // 바람
+  g.font='bold 14px sans-serif'; g.textAlign='center'; g.fillStyle='#cfd8ea';
+  const wtxt = wind===0 ? '무풍' : (wind<0 ? '◀ '+(-wind) : wind+' ▶');
+  g.fillText(wtxt, W/2, 22);
+  g.font='10px sans-serif'; g.fillStyle='#8a93a5';
+  g.fillText('바람', W/2, 34);
+  // 턴 배너
+  if(state==='aim'){
+    g.font='bold 15px sans-serif'; g.textAlign='center';
+    let msg, mine=(mode==='local')||(turn===myIdx);
+    if(mode==='local') msg=(turn===0?'P1':'P2')+' 차례 — 탱크를 당겨 발사!';
+    else if(mine) msg='내 차례! 탱크를 당겨 발사';
+    else msg = mode==='ai' ? 'AI 조준 중...' : '상대 차례를 기다리는 중...';
+    g.fillStyle = mine ? '#f0a848' : '#8a93a5';
+    g.fillText(msg, W/2, 62);
+  }
+  // 방 코드
+  if(mode==='online'){
+    g.font='11px sans-serif'; g.textAlign='center'; g.fillStyle='#8a93a5aa';
+    g.fillText('방 '+roomCode, W/2, H-8);
+  }
+}
+function drawHpBar(x, label, hp, color){
+  g.font='bold 12px sans-serif'; g.textAlign='left'; g.fillStyle='#cfd8ea';
+  g.fillText(label, x, 22);
+  g.fillStyle='#0008'; g.fillRect(x, 27, 150, 9);
+  g.fillStyle = hp>50 ? color : (hp>25 ? '#e0a030' : '#d9534f');
+  g.fillRect(x, 27, 150*hp/100, 9);
+  g.strokeStyle='#0006'; g.lineWidth=1; g.strokeRect(x, 27, 150, 9);
+  g.fillStyle='#cfd8ea'; g.font='11px sans-serif';
+  g.fillText(hp, x+155, 35);
+}
+
+// ═══════ 입력 (슬링샷 드래그) ═══════
+function canControl(){
+  if(state!=='aim') return false;
+  if(mode==='local') return true;
+  return turn===myIdx;
+}
+function evtPos(e){
+  const r=cv.getBoundingClientRect();
+  return {x:(e.clientX-r.left)*W/r.width, y:(e.clientY-r.top)*H/r.height};
+}
+cv.addEventListener('pointerdown', e=>{
+  ensureAudio();
+  if(!canControl()) return;
+  const p=evtPos(e);
+  const t=tanks[turn];
+  if(Math.hypot(p.x-t.x, p.y-(t.y-8))<60){
+    aiming={sx:p.x, sy:p.y, cx:p.x, cy:p.y};
+    cv.setPointerCapture(e.pointerId);
+  }
+});
+cv.addEventListener('pointermove', e=>{
+  if(!aiming) return;
+  const p=evtPos(e);
+  aiming.cx=p.x; aiming.cy=p.y;
+});
+cv.addEventListener('pointerup', ()=>{
+  if(!aiming) return;
+  const dx=aiming.sx-aiming.cx, dy=aiming.sy-aiming.cy;
+  const dist=Math.hypot(dx,dy);
+  aiming=null;
+  if(dist<14 || !canControl()) return;
+  const a=Math.atan2(-dy,dx);
+  const p=Math.min(100, dist*0.75);
+  if(p<8) return;
+  playerFire(a, p);
+});
+cv.addEventListener('pointercancel', ()=>{ aiming=null; });
+
+// ═══════ AI (체력이 깎일수록 정확해짐) ═══════
+function aiShoot(){
+  if(state!=='aim' || mode!=='ai' || turn!==1) return;
+  const me=tanks[1], foe=tanks[0];
+  let best={a:Math.PI*0.75, p:50}, bs=1e9;
+  for(let ad=15; ad<=85; ad+=4){
+    for(let pw=15; pw<=100; pw+=5){
+      const a=Math.PI - ad*Math.PI/180;   // 왼쪽 방향
+      const r=simShot(me, a, pw, wind, 1600, false);
+      const sc=Math.abs(r.x-foe.x) + Math.abs(r.y-(foe.y-6))*0.3 + (r.hit?0:200);
+      if(sc<bs){ bs=sc; best={a, p:pw}; }
+    }
+  }
+  const err=0.12 + 0.55*(me.hp/100);      // HP 낮을수록 오차 감소 = 분노 모드
+  const a=best.a + (Math.random()-0.5)*err*0.5;
+  const p=Math.max(10, Math.min(100, best.p + (Math.random()-0.5)*err*30));
+  fireProjectile(me, a, p);
+}
+
+// ═══════ TurnNet — 재사용 턴제 네트워크 모듈 ═══════
+class TurnNet {
+  constructor(url, key){
+    this.sb=window.supabase.createClient(url, key);
+    this.ch=null; this.handlers={}; this.role=null;
+  }
+  on(type, fn){ this.handlers[type]=fn; }
+  _route(payload){ const h=this.handlers[payload.t]; if(h) h(payload.d); }
+  async open(code, role){
+    this.role=role;
+    this.ch=this.sb.channel('fort-'+code, {
+      config:{ broadcast:{self:false}, presence:{key:role} }
+    });
+    this.ch.on('broadcast', {event:'m'}, ({payload})=>this._route(payload));
+    this.ch.on('presence', {event:'sync'}, ()=>{
+      const st=this.ch.presenceState();
+      const n=Object.keys(st).length;
+      if(this.handlers._presence) this.handlers._presence(n, st);
+    });
+    return new Promise((res,rej)=>{
+      const to=setTimeout(()=>rej(new Error('연결 시간 초과')), 10000);
+      this.ch.subscribe(async (status)=>{
+        if(status==='SUBSCRIBED'){
+          clearTimeout(to);
+          await this.ch.track({role, at:Date.now()});
+          res();
+        } else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){
+          clearTimeout(to); rej(new Error('연결 실패: '+status));
+        }
+      });
+    });
+  }
+  send(type, data){ if(this.ch) this.ch.send({type:'broadcast', event:'m', payload:{t:type, d:data}}); }
+  close(){ if(this.ch){ this.sb.removeChannel(this.ch); this.ch=null; } }
+}
+
+// ═══════ 온라인 게임 흐름 ═══════
+const CODE_CHARS='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function makeCode(){ let c=''; for(let i=0;i<4;i++) c+=CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]; return c; }
+function newSeed(){ return Math.floor(Math.random()*0x7fffffff); }
+
+function wireGameNet(){
+  net.on('start', d=>{ beginOnline(d); });
+  net.on('shot', d=>{
+    if(typeof d.w==='number') wind=d.w;   // 안전 동기화
+    if(state==='aim') fireProjectile(tanks[turn], d.a, d.p);
+  });
+  net.on('sync', d=>{
+    if(proj || state==='fly' || state==='boom') pendingSync=d;
+    else { applySync(d); checkWin(); }
+  });
+  net.on('rematch', ()=>{
+    rematchOpp=true; toast('상대가 재대결을 원합니다!');
+    tryRematch();
+  });
+  net.on('bye', ()=>{ toast('상대방이 나갔습니다'); });
+  net.on('_presence', n=>{
+    if(n<2 && mode==='online' && state!=='over') toast('상대방 연결이 끊겼습니다');
+  });
+}
+function applySync(d){
+  if(!d) return;
+  if(Array.isArray(d.craters)) for(const c of d.craters) carve(c.x, c.y, c.r);
+  if(Array.isArray(d.hp)){ tanks[0].hp=d.hp[0]; tanks[1].hp=d.hp[1]; }
+  settleTanks();
+}
+function beginOnline(d){
+  mode='online';
+  initGame(d.seed, d.pos);
+  show('scr-game');
+  toast(myIdx===0 ? '전투 시작! 내가 선공 (왼쪽)' : '전투 시작! 상대가 선공');
+}
+function tryRematch(){
+  if(!(rematchMe && rematchOpp)) return;
+  if(net && net.role==='host'){
+    const d={seed:newSeed(), pos:null};
+    net.send('start', d);
+    beginOnline(d);
+  }
+  // guest는 host의 start 수신 대기
+}
+
+async function createRoom(){
+  roomCode=makeCode();
+  net=new TurnNet(SUPA_URL, SUPA_KEY);
+  wireGameNet();
+  try{ await net.open(roomCode, 'host'); }
+  catch(err){ toast('연결 실패: '+err.message); return; }
+  myIdx=0;
+  document.getElementById('wait-code').textContent=roomCode;
+  show('scr-wait');
+  net.on('_presence', n=>{
+    if(n>=2 && mode!=='online'){
+      const d={seed:newSeed(), pos:null};
+      net.send('start', d);
+      beginOnline(d);
+    }
+  });
+}
+async function joinRoom(code){
+  roomCode=code.toUpperCase().trim();
+  if(roomCode.length!==4){ toast('4자리 코드를 입력하세요'); return; }
+  net=new TurnNet(SUPA_URL, SUPA_KEY);
+  wireGameNet();
+  try{ await net.open(roomCode, 'guest'); }
+  catch(err){ toast('연결 실패: '+err.message); return; }
+  myIdx=1;
+  toast('입장! 호스트 확인 중...');
+}
+
+// ═══════ UI 흐름 ═══════
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+}
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.remove('on'), 2600);
+}
+function showResult(winner){
+  state='over';
+  stopWhistle();
+  const title=document.getElementById('ov-title'), sub=document.getElementById('ov-sub');
+  let won;
+  if(mode==='local'){
+    title.textContent = winner===0 ? '🏆 P1 승리!' : '🏆 P2 승리!';
+    title.style.color='#f0a848';
+    sub.textContent='한 판 더?';
+    won=true;
+  } else {
+    won = winner===myIdx;
+    title.textContent = won ? '🏆 승리!' : '💥 패배...';
+    title.style.color = won ? '#f0a848' : '#8a93a5';
+    sub.textContent = won ? '상대 탱크를 격파했습니다!' : '다음 판엔 이길 수 있어요';
+  }
+  if(won) winSnd();
+  document.getElementById('b-rematch').textContent = mode==='online' ? '재대결 신청' : '다시 한 판';
+  document.getElementById('overlay').classList.add('on');
+}
+
+// ═══════ 버튼 바인딩 ═══════
+const $=id=>document.getElementById(id);
+$('b-ai').onclick = ()=>{ ensureAudio(); mode='ai'; myIdx=0; initGame(newSeed(), null); show('scr-game'); };
+$('b-local').onclick = ()=>{ ensureAudio(); mode='local'; myIdx=0; initGame(newSeed(), null); show('scr-game'); };
+$('b-online').onclick = ()=>{
+  ensureAudio();
+  if(!SUPA_URL){
+    $('online-note').innerHTML='⚠️ 온라인 서버 설정 전입니다.<br>혼자 연습·한 폰 대결은 바로 가능해요!';
+    show('scr-online');
+    $('b-create').disabled=true; $('b-join').disabled=true;
+    return;
+  }
+  $('b-create').disabled=false; $('b-join').disabled=false;
+  $('online-note').textContent='';
+  show('scr-online');
+};
+$('b-create').onclick = createRoom;
+$('b-join').onclick = ()=>joinRoom($('in-code').value);
+$('b-back1').onclick = ()=>show('scr-menu');
+$('b-back2').onclick = ()=>{ if(net) net.close(); net=null; show('scr-menu'); };
+$('b-share').onclick = async ()=>{
+  const url=location.origin+location.pathname+'?room='+roomCode;
+  if(navigator.share){
+    try{ await navigator.share({title:'포격전', text:'포격전 한 판 붙자! 💥', url}); }catch(e){}
+  } else {
+    try{ await navigator.clipboard.writeText(url); toast('링크가 복사됐습니다! 카톡에 붙여넣으세요'); }
+    catch(e){ toast('링크: '+url); }
+  }
+};
+$('b-rematch').onclick = ()=>{
+  if(mode==='online'){
+    rematchMe=true;
+    if(net) net.send('rematch', {});
+    if(rematchOpp) tryRematch();
+    else $('ov-sub').textContent='상대의 수락을 기다리는 중...';
+  } else {
+    initGame(newSeed(), null);
+  }
+};
+$('b-exit').onclick = ()=>{
+  if(net){ net.send('bye',{}); net.close(); net=null; }
+  $('overlay').classList.remove('on');
+  mode=null;
+  show('scr-menu');
+};
+
+// URL로 방 입장 (?room=CODE)
+window.addEventListener('load', ()=>{
+  const code=new URLSearchParams(location.search).get('room');
+  if(code && SUPA_URL){
+    show('scr-online');
+    $('in-code').value=code.toUpperCase();
+    setTimeout(()=>joinRoom(code), 400);
+  }
+});
+
+// ═══════ 메인 루프 ═══════
+let last=performance.now(), acc=0;
+function loop(now){
+  acc+=Math.min(now-last, 100); last=now;
+  while(acc>=1000/60){
+    if(state==='fly' && proj) stepProj();
+    for(let i=particles.length-1;i>=0;i--){
+      const p=particles[i];
+      p.vy+=0.12; p.x+=p.vx; p.y+=p.vy; p.life--;
+      if(p.life<=0) particles.splice(i,1);
+    }
+    acc-=1000/60;
+  }
+  if(tanks.length) draw();
+  requestAnimationFrame(loop);
+}
+initGame(newSeed(), null); mode=null;   // 메뉴 배경용 초기 지형
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
