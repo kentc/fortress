@@ -643,6 +643,7 @@ function wireGameNet(){
   });
   net.on('rematch', ()=>{
     rematchOpp=true; toast('상대가 재대결을 원합니다!');
+    if(!rematchMe){ const b=document.getElementById('b-rematch'); b.textContent='✅ 재대결 수락!'; }
     tryRematch();
   });
   net.on('bye', ()=>{ toast('상대방이 나갔습니다'); });
@@ -728,6 +729,7 @@ function showResult(winner){
   }
   if(won) winSnd();
   document.getElementById('b-rematch').textContent = mode==='online' ? '재대결 신청' : '다시 한 판';
+  document.getElementById('b-rematch').disabled=false;
   document.getElementById('overlay').classList.add('on');
 }
 
@@ -765,7 +767,11 @@ $('b-rematch').onclick = ()=>{
     rematchMe=true;
     if(net) net.send('rematch', {});
     if(rematchOpp) tryRematch();
-    else $('ov-sub').textContent='상대의 수락을 기다리는 중...';
+    else {
+      $('ov-sub').textContent='상대의 수락을 기다리는 중...';
+      $('b-rematch').textContent='⏳ 수락 대기 중...';
+      $('b-rematch').disabled=true;
+    }
   } else {
     initGame(newSeed(), null);
   }
